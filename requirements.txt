@@ -1,5 +1,5 @@
 streamlit==1.29.0
-tensorflow
+tensorflow==2.16.1
 numpy==1.24.4
 Pillow==10.4.0
 google-generativeai==0.8.6
