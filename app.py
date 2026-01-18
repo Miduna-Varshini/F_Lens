@@ -1,5 +1,5 @@
 import os
-# Force TensorFlow to use Legacy Keras
+# Force Legacy Keras mode
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
 import streamlit as st
@@ -8,15 +8,11 @@ from PIL import Image
 import google.generativeai as genai
 import gdown
 import tensorflow as tf
-# --- CHANGE: Import load_model from tf_keras instead of tensorflow.keras ---
+# IMPORT THE LEGACY LOADER DIRECTLY
 import tf_keras as keras 
 
 # ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="Fruit & Vegetable Recognition",
-    page_icon="🍎",
-    layout="centered"
-)
+st.set_page_config(page_title="Food Recognition", page_icon="🍎", layout="centered")
 
 # ---------------- CONFIG & PATHS ----------------
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -28,7 +24,6 @@ else:
 
 FRUIT_MODEL_PATH = "fruit_model.h5"
 VEG_MODEL_PATH = "veg_model.h5"
-
 FRUIT_ID = "1WcgG4lM7G0-x6Q2h_JEV_sHUDACpW6TQ"
 VEG_ID = "1OZvTjZZCv5PvRaAKdEikCWCk5_lWpRJ8"
 
@@ -45,7 +40,7 @@ def load_prediction_models():
     download_if_missing(FRUIT_ID, FRUIT_MODEL_PATH)
     download_if_missing(VEG_ID, VEG_MODEL_PATH)
     
-    # --- CHANGE: Using keras (tf_keras) to load the model bypasses the batch_shape error ---
+    # USE THE LEGACY KERAS LOAD_MODEL
     f_model = keras.models.load_model(FRUIT_MODEL_PATH, compile=False)
     v_model = keras.models.load_model(VEG_MODEL_PATH, compile=False)
     return f_model, v_model
@@ -58,59 +53,46 @@ def preprocess_image(img):
     return img
 
 def get_nutrients(food, category):
-    prompt = f"Act as a nutritionist. Provide the nutritional content of the {category} '{food}'. Include Calories, Vitamins, Minerals, and 3 Health benefits using bullet points. Keep it concise."
+    prompt = f"Provide the nutritional content of the {category} '{food}'. Include Calories, Vitamins, and 3 Health benefits in bullets."
     try:
         response = gemini_model.generate_content(prompt)
         return response.text
     except:
-        return "⚠️ Nutrient data currently unavailable from Gemini AI."
+        return "⚠️ Nutrient data unavailable."
 
 # ---------------- APP LOGIC ----------------
 
 st.title("🍎 Smart Food Recognition")
-st.write("Upload an image to identify the fruit/vegetable and see its nutrients.")
 
 try:
     fruit_model, veg_model = load_prediction_models()
     
     fruit_classes = ['Apple', 'Banana', 'Grapes', 'Mango', 'Orange', 'Pineapple', 'Strawberry', 'Watermelon']
-    vegetable_classes = ['Beetroot', 'Cabbage', 'Carrot', 'Cauliflower', 'Potato', 'Tomato', 'Onion', 'Spinach']
+    veg_classes = ['Beetroot', 'Cabbage', 'Carrot', 'Cauliflower', 'Potato', 'Tomato', 'Onion', 'Spinach']
 
     uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Target Image", use_container_width=True)
+        st.image(image, use_container_width=True)
 
-        with st.spinner("Analyzing image..."):
+        with st.spinner("Analyzing..."):
             img_array = preprocess_image(image)
-            
-            fruit_pred = fruit_model.predict(img_array, verbose=0)
-            veg_pred = veg_model.predict(img_array, verbose=0)
+            f_pred = fruit_model.predict(img_array, verbose=0)
+            v_pred = veg_model.predict(img_array, verbose=0)
 
-            f_conf = np.max(fruit_pred)
-            v_conf = np.max(veg_pred)
-
-            if f_conf > v_conf:
-                label = fruit_classes[np.argmax(fruit_pred)]
-                category = "Fruit"
-                confidence = f_conf
+            if np.max(f_pred) > np.max(v_pred):
+                label, cat, conf = fruit_classes[np.argmax(f_pred)], "Fruit", np.max(f_pred)
             else:
-                label = vegetable_classes[np.argmax(veg_pred)]
-                category = "Vegetable"
-                confidence = v_conf
+                label, cat, conf = veg_classes[np.argmax(v_pred)], "Vegetable", np.max(v_pred)
 
-        st.success(f"### Identification: {label} ({category})")
-        st.write(f"**Confidence Score:** {confidence:.2%}")
-
+        # Output logic
+        st.success(f"### Identification: {label} ({cat})")
+        st.write(f"Confidence: {conf:.2%}")
+        
         st.divider()
-        st.subheader(f"🥗 Nutritional Profile: {label}")
-        with st.spinner("Fetching data..."):
-            details = get_nutrients(label, category)
-            st.markdown(details)
+        st.subheader(f"🥗 Nutrients: {label}")
+        st.markdown(get_nutrients(label, cat))
 
 except Exception as e:
     st.error(f"System Error: {e}")
-
-st.markdown("---")
-st.caption("CNN Classification Models + Google Gemini Pro")
