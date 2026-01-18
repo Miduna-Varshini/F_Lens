@@ -3,8 +3,9 @@ import numpy as np
 from PIL import Image
 import google.generativeai as genai
 import os
-import urllib.request
+import gdown
 from tensorflow.keras.models import load_model
+
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="Fruit & Vegetable Recognition",
@@ -12,41 +13,40 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------------- GEMINI CONFIG ----------------
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel("gemini-1.5-pro")
-
-# ---------------- MODEL DOWNLOAD ----------------
-FRUIT_MODEL_URL = "https://drive.google.com/uc?id=1WcgG4lM7G0-x6Q2h_JEV_sHUDACpW6TQ"
-VEG_MODEL_URL   = "https://drive.google.com/uc?id=1OZvTjZZCv5PvRaAKdEikCWCk5_lWpRJ8"
+# ---------------- CONFIG & PATHS ----------------
+# Use Environment Variables for Render deployment
+API_KEY = os.environ.get("GEMINI_API_KEY")
+if API_KEY:
+    genai.configure(api_key=API_KEY)
+    gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+else:
+    st.error("Missing Gemini API Key. Please set it in Render Environment Variables.")
 
 FRUIT_MODEL_PATH = "fruit_model.h5"
 VEG_MODEL_PATH = "veg_model.h5"
 
-def download_model(url, path):
-    if not os.path.exists(path):
-        with st.spinner(f"Downloading {path}..."):
-            urllib.request.urlretrieve(url, path)
+# Google Drive File IDs (Extracted from your URLs)
+FRUIT_ID = "1WcgG4lM7G0-x6Q2h_JEV_sHUDACpW6TQ"
+VEG_ID = "1OZvTjZZCv5PvRaAKdEikCWCk5_lWpRJ8"
 
-download_model(FRUIT_MODEL_URL, FRUIT_MODEL_PATH)
-download_model(VEG_MODEL_URL, VEG_MODEL_PATH)
+# ---------------- HELPER FUNCTIONS ----------------
 
-# ---------------- LOAD MODELS ----------------
-fruit_model = load_model(FRUIT_MODEL_PATH)
-veg_model = load_model(VEG_MODEL_PATH)
+@st.cache_resource
+def load_prediction_models():
+    """Downloads and loads models. Cached so it only runs once."""
+    def download_if_missing(file_id, path):
+        if not os.path.exists(path):
+            with st.spinner(f"Downloading {path} from Drive..."):
+                url = f'https://drive.google.com/uc?id={file_id}'
+                gdown.download(url, path, quiet=False)
+    
+    download_if_missing(FRUIT_ID, FRUIT_MODEL_PATH)
+    download_if_missing(VEG_ID, VEG_MODEL_PATH)
+    
+    f_model = load_model(FRUIT_MODEL_PATH)
+    v_model = load_model(VEG_MODEL_PATH)
+    return f_model, v_model
 
-# ---------------- CLASS LABELS ----------------
-fruit_classes = [
-    'Apple', 'Banana', 'Grapes', 'Mango',
-    'Orange', 'Pineapple', 'Strawberry', 'Watermelon'
-]
-
-vegetable_classes = [
-    'Beetroot', 'Cabbage', 'Carrot', 'Cauliflower',
-    'Potato', 'Tomato', 'Onion', 'Spinach'
-]
-
-# ---------------- IMAGE PREPROCESS ----------------
 def preprocess_image(img):
     img = img.convert("RGB")
     img = img.resize((128, 128))
@@ -54,64 +54,59 @@ def preprocess_image(img):
     img = np.expand_dims(img, axis=0)
     return img
 
-# ---------------- GEMINI NUTRIENT FUNCTION ----------------
 def get_nutrients(food):
-    prompt = f"""
-    Give the nutritional content of {food}.
-
-    Include:
-    - Calories
-    - Vitamins
-    - Minerals
-    - Health benefits
-
-    Use bullet points.
-    """
+    prompt = f"Give the nutritional content of {food}. Include Calories, Vitamins, Minerals, and Health benefits in bullet points."
     try:
         response = gemini_model.generate_content(prompt)
         return response.text
-    except:
-        return "⚠️ Nutrient data temporarily unavailable."
+    except Exception as e:
+        return f"⚠️ Nutrient data unavailable: {str(e)}"
 
-# ---------------- UI ----------------
-st.title("🍎 Fruit & Vegetable Recognition System")
-st.write("Upload an image to identify food and view nutrients")
+# ---------------- APP LOGIC ----------------
 
-uploaded_file = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
+st.title("🍎 Food Recognition & Nutrition Guide")
+st.write("Upload a photo of a fruit or vegetable to identify it and see its nutritional profile.")
 
-if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+# Load models once
+try:
+    fruit_model, veg_model = load_prediction_models()
+    
+    fruit_classes = ['Apple', 'Banana', 'Grapes', 'Mango', 'Orange', 'Pineapple', 'Strawberry', 'Watermelon']
+    vegetable_classes = ['Beetroot', 'Cabbage', 'Carrot', 'Cauliflower', 'Potato', 'Tomato', 'Onion', 'Spinach']
 
-    img_array = preprocess_image(image)
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
-    fruit_pred = fruit_model.predict(img_array)
-    veg_pred = veg_model.predict(img_array)
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded Image", use_container_width=True)
 
-    fruit_conf = np.max(fruit_pred)
-    veg_conf = np.max(veg_pred)
+        with st.spinner("Classifying..."):
+            img_array = preprocess_image(image)
+            fruit_pred = fruit_model.predict(img_array)
+            veg_pred = veg_model.predict(img_array)
 
-    if fruit_conf > veg_conf:
-        idx = np.argmax(fruit_pred)
-        label = fruit_classes[idx]
-        category = "Fruit"
-        confidence = fruit_conf
-    else:
-        idx = np.argmax(veg_pred)
-        label = vegetable_classes[idx]
-        category = "Vegetable"
-        confidence = veg_conf
+            f_conf = np.max(fruit_pred)
+            v_conf = np.max(veg_pred)
 
-    st.success(f"### 🧠 Detected: {label} ({category})")
-    st.write(f"**Confidence:** {confidence:.2f}")
-    st.progress(float(confidence))
+            if f_conf > v_conf:
+                label = fruit_classes[np.argmax(fruit_pred)]
+                category = "Fruit"
+                confidence = f_conf
+            else:
+                label = vegetable_classes[np.argmax(veg_pred)]
+                category = "Vegetable"
+                confidence = v_conf
 
-    with st.spinner("🤖 Fetching nutrient details..."):
-        nutrients = get_nutrients(label)
+        st.success(f"### Result: {label} ({category})")
+        st.info(f"**Confidence Score:** {confidence:.2%}")
 
-    st.subheader("🥗 Nutritional Information")
-    st.write(nutrients)
+        with st.expander("See Nutritional Information"):
+            with st.spinner("Consulting Gemini AI..."):
+                details = get_nutrients(label)
+                st.markdown(details)
 
-# ---------------- FOOTER ----------------
+except Exception as e:
+    st.error(f"Error loading models: {e}")
+
 st.markdown("---")
-st.caption("CNN Models + Gemini AI | College Mini Project")
+st.caption("Deep Learning (CNN) + Google Gemini Pro API")
