@@ -4,3 +4,4 @@ numpy==1.24.4
 Pillow==10.4.0
 google-generativeai==0.8.6
 protobuf==4.25.3
+pip==25.3.1
