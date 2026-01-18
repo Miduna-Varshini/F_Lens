@@ -1,5 +1,5 @@
 import os
-# IMPORTANT: This must be at the very top to fix the 'batch_shape' error
+# Force TensorFlow to use Legacy Keras
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
 import streamlit as st
@@ -8,7 +8,8 @@ from PIL import Image
 import google.generativeai as genai
 import gdown
 import tensorflow as tf
-from tensorflow.keras.models import load_model
+# --- CHANGE: Import load_model from tf_keras instead of tensorflow.keras ---
+import tf_keras as keras 
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -28,7 +29,6 @@ else:
 FRUIT_MODEL_PATH = "fruit_model.h5"
 VEG_MODEL_PATH = "veg_model.h5"
 
-# Google Drive File IDs
 FRUIT_ID = "1WcgG4lM7G0-x6Q2h_JEV_sHUDACpW6TQ"
 VEG_ID = "1OZvTjZZCv5PvRaAKdEikCWCk5_lWpRJ8"
 
@@ -45,9 +45,9 @@ def load_prediction_models():
     download_if_missing(FRUIT_ID, FRUIT_MODEL_PATH)
     download_if_missing(VEG_ID, VEG_MODEL_PATH)
     
-    # Using compile=False often avoids version-related loading issues
-    f_model = load_model(FRUIT_MODEL_PATH, compile=False)
-    v_model = load_model(VEG_MODEL_PATH, compile=False)
+    # --- CHANGE: Using keras (tf_keras) to load the model bypasses the batch_shape error ---
+    f_model = keras.models.load_model(FRUIT_MODEL_PATH, compile=False)
+    v_model = keras.models.load_model(VEG_MODEL_PATH, compile=False)
     return f_model, v_model
 
 def preprocess_image(img):
@@ -73,7 +73,6 @@ st.write("Upload an image to identify the fruit/vegetable and see its nutrients.
 try:
     fruit_model, veg_model = load_prediction_models()
     
-    # Make sure these labels match your training data order!
     fruit_classes = ['Apple', 'Banana', 'Grapes', 'Mango', 'Orange', 'Pineapple', 'Strawberry', 'Watermelon']
     vegetable_classes = ['Beetroot', 'Cabbage', 'Carrot', 'Cauliflower', 'Potato', 'Tomato', 'Onion', 'Spinach']
 
@@ -86,14 +85,12 @@ try:
         with st.spinner("Analyzing image..."):
             img_array = preprocess_image(image)
             
-            # Get predictions
             fruit_pred = fruit_model.predict(img_array, verbose=0)
             veg_pred = veg_model.predict(img_array, verbose=0)
 
             f_conf = np.max(fruit_pred)
             v_conf = np.max(veg_pred)
 
-            # Logic to decide which category it belongs to
             if f_conf > v_conf:
                 label = fruit_classes[np.argmax(fruit_pred)]
                 category = "Fruit"
@@ -103,13 +100,9 @@ try:
                 category = "Vegetable"
                 confidence = v_conf
 
-        # Display Result
-        st.subheader(f"Identification: {label}")
-        st.write(f"**Category:** {category}")
-        st.write(f"**Confidence:** {confidence:.2%}")
-        st.progress(float(confidence))
+        st.success(f"### Identification: {label} ({category})")
+        st.write(f"**Confidence Score:** {confidence:.2%}")
 
-        # Show Nutrients
         st.divider()
         st.subheader(f"🥗 Nutritional Profile: {label}")
         with st.spinner("Fetching data..."):
