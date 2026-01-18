@@ -1,5 +1,5 @@
 import os
-# Force Legacy Keras mode
+# STEP 1: Force TensorFlow to use Legacy Keras (Keras 2)
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
 import streamlit as st
@@ -8,7 +8,9 @@ from PIL import Image
 import google.generativeai as genai
 import gdown
 import tensorflow as tf
-# IMPORT THE LEGACY LOADER DIRECTLY
+
+# STEP 2: Use the specific tf_keras library for loading
+# This bypasses the Keras 3 "batch_shape" error
 import tf_keras as keras 
 
 # ---------------- PAGE CONFIG ----------------
@@ -40,7 +42,7 @@ def load_prediction_models():
     download_if_missing(FRUIT_ID, FRUIT_MODEL_PATH)
     download_if_missing(VEG_ID, VEG_MODEL_PATH)
     
-    # USE THE LEGACY KERAS LOAD_MODEL
+    # STEP 3: Load using tf_keras instead of standard tensorflow
     f_model = keras.models.load_model(FRUIT_MODEL_PATH, compile=False)
     v_model = keras.models.load_model(VEG_MODEL_PATH, compile=False)
     return f_model, v_model
@@ -53,7 +55,7 @@ def preprocess_image(img):
     return img
 
 def get_nutrients(food, category):
-    prompt = f"Provide the nutritional content of the {category} '{food}'. Include Calories, Vitamins, and 3 Health benefits in bullets."
+    prompt = f"Act as a nutritionist. List the nutritional content for 100g of {food} ({category}). Include Calories, Vitamins, and 3 Health benefits in bullets."
     try:
         response = gemini_model.generate_content(prompt)
         return response.text
@@ -78,9 +80,11 @@ try:
 
         with st.spinner("Analyzing..."):
             img_array = preprocess_image(image)
+            # Predict
             f_pred = fruit_model.predict(img_array, verbose=0)
             v_pred = veg_model.predict(img_array, verbose=0)
 
+            # Compare confidence
             if np.max(f_pred) > np.max(v_pred):
                 label, cat, conf = fruit_classes[np.argmax(f_pred)], "Fruit", np.max(f_pred)
             else:
